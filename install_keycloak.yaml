@@ -1,0 +1,115 @@
+- hosts: docker
+  become: yes
+  vars:
+    service: keycloak
+    dir_compose: '/docker-compose/{{ service }}'
+    kc_http_port: 28080
+    kc_nodes: [11.11.11.11, 22.22.22.22]
+    kc_proxies: [11.11.11.11, 22.22.22.22]
+    kc_monitoring: [33.33.33.33]
+
+  handlers:
+    # Применяем только свою таблицу. НЕ делаем systemctl reload nftables:
+    # в стандартном /etc/nftables.conf есть "flush ruleset", он снесет правила Docker.
+    - name: apply keycloak firewall
+      command: nft -f /etc/nftables.d/{{ service }}.nft
+
+  tasks:
+
+  # ---------- Firewall ----------
+  - name: Install nftables
+    apt:
+      name: nftables
+      state: present
+
+  - name: Creates directories
+    file:
+      path: "{{ item }}"
+      state: directory
+    loop:
+      - "{{ dir_compose }}"
+      - /etc/nftables.d
+
+  - name: Firewall rules for keycloak
+    template:
+      src: 'files/{{ service }}/{{ service }}.nft.j2'
+      dest: '/etc/nftables.d/{{ service }}.nft'
+      mode: '0644'
+      validate: 'nft -c -f %s'          # битый файл не попадет на хост
+    notify: apply keycloak firewall
+
+  # При загрузке nftables стартует раньше Docker, поэтому flush ruleset там безопасен
+  - name: Load rules on boot
+    lineinfile:
+      path: /etc/nftables.conf
+      line: 'include "/etc/nftables.d/*.nft"'
+
+  - name: Enable nftables on boot
+    systemd:
+      name: nftables
+      enabled: yes
+
+  - name: Apply firewall now (before restarting keycloak)
+    meta: flush_handlers
+
+  # ---------- Keycloak ----------
+  - name: Generate docker-compose.yml from template
+    template:
+      src: 'files/{{ service }}/{{ service }}.yaml.j2'
+      dest: '{{ dir_compose }}/docker-compose.yaml'
+
+  - name: copy ca.crt
+    copy:
+      src: 'files/{{ service }}/nhmad_ca.crt'
+      dest: '{{ dir_compose }}/nhmad_ca.crt'
+
+  - name: copy krb5.keytab
+    copy:
+      src: 'files/{{ service }}/{{ service }}.keytab'
+      dest: '{{ dir_compose }}/{{ service }}.keytab'
+      mode: '0600'
+
+  - name: update images
+    command: docker compose pull
+    args:
+      chdir: '{{ dir_compose }}'
+    changed_when: false
+
+  - name: Docker-compose run 1
+    command: docker compose up -d --force-recreate
+    args:
+      chdir: '{{ dir_compose }}'
+    when: node == 1
+
+  # Check ready
+  - name: Check node1 ready
+    uri:
+      url: 'http://127.0.0.1:9000/health/ready'
+    register: kc_ready
+    until: kc_ready.status == 200
+    retries: 30
+    delay: 5
+    when: node == 1
+
+  - name: Docker-compose run 2
+    command: docker compose up -d --force-recreate
+    args:
+      chdir: '{{ dir_compose }}'
+    when: node == 2
+
+  - name: Check node2 ready
+    uri:
+      url: 'http://127.0.0.1:9000/health/ready'
+    register: kc_ready
+    until: kc_ready.status == 200
+    retries: 30
+    delay: 5
+    when: node == 2
+
+  - name: Docker clear
+    command: "{{ item }}"
+    loop:
+      - docker system prune -a -f
+      - docker volume prune -a -f
+    register: prune
+    changed_when: "'Total reclaimed space: 0B' not in prune.stdout"
