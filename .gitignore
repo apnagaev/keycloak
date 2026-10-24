@@ -1,0 +1,9 @@
+# Секреты и локальные данные — никогда не коммитим
+*.keytab
+*.jks
+*.p12
+*.key
+inventory.yml
+vault*.yml
+.vault_pass*
+*.retry
