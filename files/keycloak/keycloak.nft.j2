@@ -1,0 +1,24 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+# Файл применяется отдельно (nft -f) и пересоздает только свою таблицу —
+# правила Docker и остальной ruleset не трогаются.
+
+table inet keycloak
+delete table inet keycloak
+
+table inet keycloak {
+  set proxies  { type ipv4_addr; flags interval; elements = { {{ kc_proxies | join(', ') }}, 172.16.0.0/12 } }
+  set kc_nodes { type ipv4_addr; elements = { {{ kc_nodes | join(', ') }} } }
+  set monitoring { type ipv4_addr; elements = { {{ kc_monitoring | join(', ') }} } }
+
+  chain input {
+    type filter hook input priority 0; policy accept;
+
+    iif lo accept                                         # healthcheck контейнера, локальный прокси
+    tcp dport {{ kc_http_port }} ip saddr @proxies accept # HTTP — только reverse proxy
+    tcp dport 9000 ip saddr @monitoring accept              # метрики/health — мониторинг
+    tcp dport 9000 ip saddr @proxies accept               # health-check балансировщика
+    tcp dport { 7800, 57800 } ip saddr @kc_nodes accept   # кластер Keycloak (JGroups, FD_SOCK2)
+    tcp dport { {{ kc_http_port }}, 9000, 7800, 57800 } drop
+  }
+}
