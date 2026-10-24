@@ -1,0 +1,50 @@
+services:
+  keycloak:
+    container_name: keycloak
+    network_mode: host
+    dns:
+      - 8.8.8.8
+    command:
+      - start
+      - --spi-sticky-session-encoder--infinispan--should-attach-route=false
+      - --spi-user-profile--declarative-user-profile--read-only-attributes=*_RES_ACCESS_MODE
+    environment:
+      KC_HOSTNAME: "https://sso.keycloak.kk"
+      KC_BOOTSTRAP_ADMIN_USERNAME: "username"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "password"
+      KC_PROXY_TRUSTED_ADDRESSES: "11.11.11.11,22.22.22.22,172.16.0.0/12"
+      KC_PROXY_HEADERS: 'xforwarded'
+      TZ: "Europe/Moscow"
+      KC_HTTP_ENABLED: true
+      KC_DB: 'mariadb'
+      KC_DB_USERNAME: 'username'
+      KC_DB_PASSWORD: 'password'
+      KC_DB_URL: 'jdbc:mariadb://db.keycloak.kk:3306/keycloak'
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+      KC_FEATURES: 'scripts'
+      KC_FEATURES_DISABLED: 'twitter-broker,identity-brokering-api'
+      KC_TRUSTSTORE_PATHS: '/opt/keycloak/nhmad_ca.crt'
+      KC_CACHE: 'ispn'
+      KC_HTTP_PORT: 28080
+      KC_CACHE_STACK: 'jdbc-ping'
+      QUARKUS_THREAD_POOL_QUEUE_SIZE: 1000
+      JAVA_OPTS_APPEND: "-Djgroups.bind.address={{ nodeip }} -Xms512m -Xmx2048m"
+    image: quay.io/keycloak/keycloak:latest
+    restart: unless-stopped
+    volumes:
+      - ./nhmad_ca.crt:/opt/keycloak/nhmad_ca.crt
+      - ./keycloak.keytab:/etc/krb5.keytab
+
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
