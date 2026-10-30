@@ -19,7 +19,7 @@
           └──┬─────┬──┘
      :28080  │     │  :28080
    ┌─────────▼┐   ┌▼─────────┐
-   │ docker1  │◄─►│ docker2  │  JGroups :7800 / :57800 (mTLS)
+   │  node1   │◄─►│  node2   │  JGroups :7800 / :57800 (mTLS)
    │ keycloak │   │ keycloak │
    └─────┬────┘   └────┬─────┘
          └──────┬──────┘
@@ -33,11 +33,14 @@
 ```
 install_keycloak.yaml            # плейбук: firewall + деплой + rolling restart + очистка
 inventory.example.yml            # пример inventory (скопировать в inventory.yml)
+vars/keycloak.example.yml        # домен, БД, адреса, имена файлов (скопировать в vars/keycloak.yml)
 files/keycloak/
   keycloak.yaml.j2               # шаблон docker-compose.yaml
   keycloak.nft.j2                # шаблон правил nftables
-  nhmad_ca.crt                   # НЕ в репозитории — CA-сертификат для truststore
-  keycloak.keytab                # НЕ в репозитории — Kerberos keytab
+  keycloak.env.example           # логины и пароли БД и первого админа (скопировать в keycloak.env)
+  keycloak.env                   # НЕ в репозитории
+  ca.crt                         # НЕ в репозитории — CA-сертификат для truststore (имя — kc_ca_cert)
+  keycloak.keytab                # НЕ в репозитории — Kerberos keytab (имя — kc_keytab)
 ```
 
 ## Требования
@@ -57,38 +60,40 @@ cp inventory.example.yml inventory.yml
 Для каждого хоста задайте `ansible_host`, `node` (1 или 2 — порядок перезапуска) и
 `nodeip` (адрес, на котором узел общается с кластером). Группа хостов должна называться `docker`.
 
-### 2. Переменные плейбука (`install_keycloak.yaml`, блок `vars`)
+### 2. Настройки инсталляции
+
+```bash
+cp vars/keycloak.example.yml vars/keycloak.yml
+cp files/keycloak/keycloak.env.example files/keycloak/keycloak.env
+```
+
+Оба файла в `.gitignore`: код можно обновлять из git (`git pull`), не трогая свои значения.
+
+`vars/keycloak.yml`:
 
 | Переменная | Назначение |
 |---|---|
-| `kc_http_port` | HTTP-порт Keycloak (по умолчанию `28080`) |
+| `kc_hostname` | внешний URL, например `https://sso.example.org` |
+| `kc_db_url` | подключение к MariaDB (`jdbc:mariadb://…/keycloak`) |
+| `dns_server`, `kc_timezone` | DNS и часовой пояс контейнера |
 | `kc_nodes` | IP узлов Keycloak — им открыты кластерные порты |
-| `kc_proxies` | IP reverse proxy, включая vIP — им открыт HTTP-порт |
+| `kc_proxies` | IP reverse proxy, включая vIP — им открыт HTTP-порт; они же (+ `172.16.0.0/12`) в `KC_PROXY_TRUSTED_ADDRESSES` |
 | `kc_monitoring` | IP системы мониторинга — ей открыт порт `9000` |
+| `kc_ca_cert` | имя файла CA в `files/keycloak/` (`""` — без своего CA) |
+| `kc_keytab` | имя keytab в `files/keycloak/` (`""` — без Kerberos) |
 
-### 3. Шаблон compose (`files/keycloak/keycloak.yaml.j2`)
+`files/keycloak/keycloak.env`: `KC_DB_USERNAME`, `KC_DB_PASSWORD`, `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD` (первый админ создаётся только на пустой БД). Файл копируется на узлы с правами `0600`.
 
-Значения-заглушки, которые нужно заменить:
+В блоке `vars` плейбука остался `kc_http_port` (по умолчанию `28080`).
 
-| Параметр | Что указать |
-|---|---|
-| `dns` | ваш DNS-сервер |
-| `KC_HOSTNAME` | внешний URL, например `https://sso.example.com` |
-| `KC_PROXY_TRUSTED_ADDRESSES` | те же адреса, что в `kc_proxies`, + `172.16.0.0/12` |
-| `KC_DB_URL`, `KC_DB_USERNAME`, `KC_DB_PASSWORD` | подключение к MariaDB |
-| `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD` | первый админ (создается только на пустой БД) |
-
-> ⚠️ Не коммитьте реальные пароли. Держите их в Ansible Vault и подставляйте в шаблон
-> переменными (`{{ kc_db_password }}`), либо правьте шаблон только локально.
-
-### 4. Файлы, которых нет в репозитории
+### 3. Файлы, которых нет в репозитории
 
 Положите в `files/keycloak/`:
-- `nhmad_ca.crt` — CA, которому должен доверять Keycloak (LDAPS, исходящие HTTPS-вызовы);
-- `keycloak.keytab` — keytab для Kerberos. Желательно зашифровать: `ansible-vault encrypt files/keycloak/keycloak.keytab`
-  (модуль `copy` расшифрует его при копировании автоматически).
+- CA, которому должен доверять Keycloak (LDAPS, исходящие HTTPS-вызовы), под именем из `kc_ca_cert`;
+- keytab для Kerberos под именем из `kc_keytab`.
 
-`*.keytab`, `inventory.yml` и vault-файлы исключены через `.gitignore`.
+Секреты можно дополнительно зашифровать: `ansible-vault encrypt files/keycloak/keycloak.env files/keycloak/keycloak.keytab`
+(модуль `copy` расшифрует их при копировании, плейбук запускайте с `--ask-vault-pass`).
 
 ## Развертывание
 

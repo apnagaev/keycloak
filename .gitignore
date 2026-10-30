@@ -4,6 +4,10 @@
 *.p12
 *.key
 inventory.yml
+vars/*.yml
+!vars/*.example.yml
+*.env
+*.crt
 vault*.yml
 .vault_pass*
 *.retry

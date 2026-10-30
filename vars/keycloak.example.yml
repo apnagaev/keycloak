@@ -1,0 +1,14 @@
+# Настройки вашей инсталляции Keycloak. Скопируйте в vars/keycloak.yml (он в .gitignore) и подставьте свои значения.
+# Логины и пароли сюда не кладите: они в files/keycloak/keycloak.env (тоже вне git).
+
+kc_hostname: https://sso.example.org                       # внешний адрес Keycloak
+kc_db_url: jdbc:mariadb://db.example.org:3306/keycloak     # MariaDB
+dns_server: 1.1.1.1                                        # DNS для контейнера
+kc_timezone: Europe/Moscow
+
+kc_nodes: [11.11.11.11, 22.22.22.22]        # узлы кластера: им открыты порты JGroups
+kc_proxies: [11.11.11.11, 22.22.22.22]      # reverse proxy, включая vIP: им открыт HTTP и доверены X-Forwarded-*
+kc_monitoring: [33.33.33.33]                # мониторинг: порт 9000 (health, metrics)
+
+kc_ca_cert: ca.crt               # CA для truststore (LDAPS, исходящий HTTPS), файл в files/keycloak/; "" — не нужен
+kc_keytab: keycloak.keytab       # Kerberos keytab, файл в files/keycloak/; "" — без Kerberos
