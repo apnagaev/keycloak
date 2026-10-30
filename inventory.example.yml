@@ -1,12 +1,13 @@
+# Скопируйте в inventory.yml (он в .gitignore) и подставьте свои адреса.
 all:
   children:
     docker:
       hosts:
-        docker1:
+        node1:
           ansible_host: 11.11.11.11
           node: 1                 # порядок перезапуска: сначала 1, потом 2
           nodeip: 11.11.11.11     # адрес для кластерного трафика (jgroups.bind.address)
-        docker2:
+        node2:
           ansible_host: 22.22.22.22
           node: 2
           nodeip: 22.22.22.22
